@@ -1,0 +1,7 @@
+- insert:
+    - id: mora
+      name: '@local/dsh-mora'
+      config:
+        appRoot: /Users/media/Documents/dsh_playground/mora
+        port: 8787
+        autostart: true
