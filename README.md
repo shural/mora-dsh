@@ -6,7 +6,7 @@ a sidebar panel plus five tools the assistant can call.
 Installed as a linked local bundle into the `desktop` profile:
 
 ```bash
-plugin_manager install_bundle target=/Users/media/Documents/dsh_playground/mora-dsh
+plugin_manager install_bundle target=<absolute path to this directory>
 ```
 
 ## What it adds
@@ -53,7 +53,7 @@ Config lives in `cordis.patch.yml`:
     - id: mora
       name: '@local/dsh-mora'
       config:
-        appRoot: /Users/media/Documents/dsh_playground/mora
+        appRoot: /absolute/path/to/mora
         port: 8787
         autostart: true
 ```
@@ -78,3 +78,7 @@ icon.svg           panel + plugin artwork
   page refresh unless `pnpm run dev:web` is running.
 - Visible text uses a local `ZH`/`EN` dictionary rather than `ctx.locale`, so the panel can't
   blank itself if the locale API differs; the plugin-list metadata still ships in `locale/*.json`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
