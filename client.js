@@ -250,7 +250,9 @@ window.__ModuleLoader__.load({
 .mora-line.is-active{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent)}
 .mora-line.is-active .mora-text{color:var(--dsw-alias-brand-primary)}
 .mora-line:hover .mora-idx{color:var(--dsw-alias-brand-primary)}
-.mora-line:hover .mora-idx::after{content:' ▶'}
+.mora-line:hover .mora-idx{color:var(--dsw-alias-brand-primary)}
+.mora-idx-time{display:none;margin-left:4px;font-size:10px;color:var(--dsw-alias-brand-primary);font-variant-numeric:tabular-nums}
+.mora-line:hover .mora-idx-time{display:inline}
 .mora-err{color:var(--dsw-alias-state-error-primary);font-size:11.5px}
 @media (max-width:820px){.mora-rail{display:none}.mora-main{padding:14px 16px 40px}}
 `
@@ -282,6 +284,7 @@ window.__ModuleLoader__.load({
       const [recording, setRecording] = useState(false)
       const [singResult, setSingResult] = useState(null)
       const [singError, setSingError] = useState(null)
+      const [seekNote, setSeekNote] = useState(null)
 
       const dict = locale === 'en' ? EN : ZH
       const t = useCallback((key) => dict[key] || ZH[key] || key, [dict])
@@ -439,29 +442,78 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      /** Click a lyric line: play exactly that line, then stop. */
+      /** Click a lyric line: play exactly that line, then stop.
+       *  The line object is handed over by the render, so there is no ref lookup
+       *  that could return the wrong line (or nothing) on a stale closure. */
       const playLine = useCallback(
-        (index) => {
-          const line = linesRef.current[index]
+        (line, index) => {
           const el = audioRef.current
-          if (!line || !el || Number(line.start) < 0) return
-          const off = offsetRef.current
+          if (!el) {
+            setSingError('播放器还没准备好，请刷新页面')
+            return
+          }
+          if (!line || !Number.isFinite(Number(line.start)) || Number(line.start) < 0) {
+            setSingError('这一句没有时间轴，无法定位播放')
+            return
+          }
+          const off = Number.isFinite(Number(song?.offset)) ? Number(song.offset) : 0
           const start = Math.max(0, Number(line.start) + off)
           const end = Number(line.end) > 0 ? Number(line.end) + off : start + 6
           segmentRef.current = loopLine ? null : [start, end]
-          el.currentTime = start
           setTime(start)
           lastSecondRef.current = Math.floor(start)
           setActiveIndex(index)
           setSingError(null)
+          setSeekNote(`▶ 第 ${index + 1} 句 · ${fmtTime(start)}`)
           el.preservesPitch = true
           el.playbackRate = rate
-          void el
-            .play()
+
+          const begin = async () => {
+            // a seek issued before metadata lands can be discarded when the
+            // load finishes, which drops you back to 0:00
+            if (el.readyState < 1) {
+              await new Promise((resolve) => {
+                const done = () => {
+                  el.removeEventListener('loadedmetadata', done)
+                  el.removeEventListener('error', done)
+                  resolve()
+                }
+                el.addEventListener('loadedmetadata', done)
+                el.addEventListener('error', done)
+                window.setTimeout(done, 6000)
+              })
+            }
+            if (!Number.isFinite(el.duration) || el.duration === 0) {
+              throw new Error('音频还没准备好，请再点一次')
+            }
+            const target = Math.min(start, Math.max(0, el.duration - 0.3))
+            if (Math.abs(el.currentTime - target) > 0.1) {
+              await new Promise((resolve) => {
+                const done = () => {
+                  el.removeEventListener('seeked', done)
+                  resolve()
+                }
+                el.addEventListener('seeked', done)
+                el.currentTime = target
+                window.setTimeout(done, 3000)
+              })
+            }
+            if (Math.abs(el.currentTime - target) > 1) el.currentTime = target
+            await el.play()
+            if (Math.abs(el.currentTime - target) > 1) el.currentTime = target
+            await new Promise((r) => window.setTimeout(r, 400))
+            if (Math.abs(el.currentTime - target) > 2) {
+              setSeekNote(`⚠ 定位没生效：应到 ${fmtTime(target)}，实际 ${fmtTime(el.currentTime)}`)
+            }
+          }
+          void begin()
             .then(() => setPlaying(true))
-            .catch((error) => setSingError(`播放失败：${error?.message || error}`))
+            .catch((error) => {
+              setSeekNote(null)
+              setSingError(`播放失败：${error?.message || error}`)
+            })
         },
-        [loopLine, rate],
+        [loopLine, rate, song],
       )
 
       const submitSing = useCallback(
@@ -620,7 +672,7 @@ window.__ModuleLoader__.load({
         h('audio', {
           ref: audioRef,
           src: songId ? `${API}/media/${encodeURIComponent(songId)}/audio` : undefined,
-          preload: 'metadata',
+          preload: 'auto',
           style: { display: 'none' },
           onLoadedMetadata: (event) => setDuration(Number(event.currentTarget.duration) || 0),
           onEnded: () => setPlaying(false),
@@ -684,7 +736,7 @@ window.__ModuleLoader__.load({
               h(
                 'span',
                 { className: 'mora-railmeta' },
-                recording ? '正在录音…' : `第 ${activeIndex + 1} 句`,
+                recording ? '正在录音…' : seekNote || `第 ${activeIndex + 1} 句`,
               ),
             )
           : null,
@@ -777,12 +829,12 @@ window.__ModuleLoader__.load({
               h('div', { className: 'mora-state-text' }, t('noLyricsHint')),
             )
           : lines.map((line, index) =>
-              renderLine(line, index, selected, setSelected, index === activeIndex, lineRefs, playLine),
+              renderLine(line, index, selected, setSelected, index === activeIndex, lineRefs, playLine, Number(song.offset) || 0),
             ),
       )
     }
 
-    function renderLine(line, index, selected, setSelected, isActive, lineRefs, playLine) {
+    function renderLine(line, index, selected, setSelected, isActive, lineRefs, playLine, offset) {
       const groups = groupTokens(line.tokens)
       return h(
         'div',
@@ -792,10 +844,15 @@ window.__ModuleLoader__.load({
           ref: (element) => {
             lineRefs.current[index] = element
           },
-          onClick: () => playLine(index),
-          title: '点这一句，播放这一句',
+          onClick: () => playLine(line, index),
+          title: '点这一句，从这一句开始播',
         },
-        h('span', { className: 'mora-idx' }, String(index + 1).padStart(2, '0')),
+        h(
+          'span',
+          { className: 'mora-idx' },
+          String(index + 1).padStart(2, '0'),
+          h('span', { className: 'mora-idx-time' }, fmtTime(Math.max(0, Number(line.start) + offset))),
+        ),
         h(
           'div',
           { className: 'mora-linebody' },
