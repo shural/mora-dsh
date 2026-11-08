@@ -273,6 +273,7 @@ window.__ModuleLoader__.load({
       const linesRef = useRef([])
       const lineRefs = useRef([])
       const offsetRef = useRef(0)
+      const audioReadyRef = useRef(Promise.resolve(true)) // resolves when the blob is installed
       const lastSecondRef = useRef(-1)
       const segmentRef = useRef(null) // [start, end] absolute, cleared when the segment ends
       const [playing, setPlaying] = useState(false)
@@ -285,6 +286,7 @@ window.__ModuleLoader__.load({
       const [singResult, setSingResult] = useState(null)
       const [singError, setSingError] = useState(null)
       const [seekNote, setSeekNote] = useState(null)
+      const [audioReady, setAudioReady] = useState(false)
 
       const dict = locale === 'en' ? EN : ZH
       const t = useCallback((key) => dict[key] || ZH[key] || key, [dict])
@@ -365,34 +367,44 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      // (re)point the element at the current song
+      // Load the song into a Blob and play it from a blob: URL.
+      //
+      // A range-capable server gives the element seekable [0..duration]; some
+      // environments (proxy re-chunking, tunnels) strip that and the element
+      // reports seekable = 0:00~0:00 while still playing — every currentTime
+      // assignment is then silently dropped and playback restarts at 0:00.
+      // A blob is fully seekable by construction, so this cannot happen.
       useEffect(() => {
         const el = audioRef.current
-        if (!el) return
-        if (!songId) {
-          el.removeAttribute('src')
-          return
-        }
-        const next = `${API}/media/${encodeURIComponent(songId)}/audio`
-        if (el.getAttribute('src') !== next) {
-          el.src = next
-          el.load()
+        if (!el || !songId) return undefined
+        let cancelled = false
+        let objectUrl = null
+        setAudioReady(false)
+        setSeekNote('音频加载中…')
+        const loading = fetch(`${API}/media/${encodeURIComponent(songId)}/audio`)
+          .then((response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            return response.blob()
+          })
+          .then((blob) => {
+            if (cancelled) return
+            objectUrl = URL.createObjectURL(blob)
+            el.src = objectUrl
+            el.load()
+            setAudioReady(true)
+            setSeekNote(null)
+            return true
+          })
+          .catch((error) => {
+            if (!cancelled) setSeekNote(`⚠ 音频加载失败：${error?.message || error}`)
+            return false
+          })
+        audioReadyRef.current = loading
+        return () => {
+          cancelled = true
+          if (objectUrl) URL.revokeObjectURL(objectUrl)
         }
       }, [songId])
-
-      useEffect(() => {
-        linesRef.current = song?.lines || []
-        offsetRef.current = Number(song?.offset) || 0
-      }, [song])
-
-      // keep the current line in view while singing along
-      useEffect(() => {
-        if (!playing) return
-        const el = lineRefs.current[activeIndex]
-        if (el && typeof el.scrollIntoView === 'function') {
-          el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        }
-      }, [activeIndex, playing])
 
       // reset transport when switching songs
       useEffect(() => {
@@ -512,6 +524,8 @@ window.__ModuleLoader__.load({
           }
 
           const begin = async () => {
+            const loaded = await audioReadyRef.current
+            if (!loaded) throw new Error('音频没加载成功，请点刷新')
             // a seek issued before metadata lands can be discarded when the
             // load finishes, which drops you back to 0:00
             if (el.readyState < 1) {

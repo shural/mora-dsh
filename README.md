@@ -23,7 +23,10 @@ so it follows the host theme and light/dark.
 
 It can also be practised in, not just read:
 
-- ▶ play / pause the real audio (streamed through the proxy with Range support)
+- ▶ play / pause the real audio. The song is fetched once and played from a
+  `blob:` URL, so seeking always works even when a proxy/tunnel strips the
+  range headers that make a network resource seekable (diagnosed from
+  `seekable = 0:00~0:00` while the element still reported the right duration)
 - 0.5×–1.0× tempo with `preservesPitch` (slowing down does not change the key)
 - **click any lyric line to play exactly that line**, and it stops at the end of it
   (arm 「循环本句」 first if you want that line to loop instead)
