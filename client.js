@@ -346,6 +346,40 @@ window.__ModuleLoader__.load({
       const playerHref =
         info?.origin && songId ? `${info.origin}/song/${encodeURIComponent(songId)}` : null
 
+      // The audio element lives OUTSIDE React's tree: the slot can re-render or
+      // remount at any time, and a React-managed media element that gets
+      // replaced mid-playback resets to 0:00 and drops pending seeks.
+      useEffect(() => {
+        const el = new Audio()
+        el.preload = 'auto'
+        el.preservesPitch = true
+        el.style.display = 'none'
+        el.addEventListener('loadedmetadata', () => setDuration(Number(el.duration) || 0))
+        el.addEventListener('ended', () => setPlaying(false))
+        audioRef.current = el
+        return () => {
+          el.pause()
+          el.removeAttribute('src')
+          el.load()
+          if (audioRef.current === el) audioRef.current = null
+        }
+      }, [])
+
+      // (re)point the element at the current song
+      useEffect(() => {
+        const el = audioRef.current
+        if (!el) return
+        if (!songId) {
+          el.removeAttribute('src')
+          return
+        }
+        const next = `${API}/media/${encodeURIComponent(songId)}/audio`
+        if (el.getAttribute('src') !== next) {
+          el.src = next
+          el.load()
+        }
+      }, [songId])
+
       useEffect(() => {
         linesRef.current = song?.lines || []
         offsetRef.current = Number(song?.offset) || 0
@@ -468,6 +502,15 @@ window.__ModuleLoader__.load({
           el.preservesPitch = true
           el.playbackRate = rate
 
+          const describeElement = () => {
+            const sk =
+              el.seekable && el.seekable.length
+                ? `${fmtTime(el.seekable.start(0))}~${fmtTime(el.seekable.end(0))}`
+                : 'none'
+            const dur = Number.isFinite(el.duration) ? Math.round(el.duration) : String(el.duration)
+            return `duration=${dur} readyState=${el.readyState} seekable=${sk}`
+          }
+
           const begin = async () => {
             // a seek issued before metadata lands can be discarded when the
             // load finishes, which drops you back to 0:00
@@ -483,10 +526,8 @@ window.__ModuleLoader__.load({
                 window.setTimeout(done, 6000)
               })
             }
-            if (!Number.isFinite(el.duration) || el.duration === 0) {
-              throw new Error('音频还没准备好，请再点一次')
-            }
-            const target = Math.min(start, Math.max(0, el.duration - 0.3))
+            const hasDuration = Number.isFinite(el.duration) && el.duration > 0
+            const target = hasDuration ? Math.min(start, Math.max(0, el.duration - 0.3)) : start
             if (Math.abs(el.currentTime - target) > 0.1) {
               await new Promise((resolve) => {
                 const done = () => {
@@ -500,10 +541,51 @@ window.__ModuleLoader__.load({
             }
             if (Math.abs(el.currentTime - target) > 1) el.currentTime = target
             await el.play()
-            if (Math.abs(el.currentTime - target) > 1) el.currentTime = target
-            await new Promise((r) => window.setTimeout(r, 400))
+            // some elements only accept a seek once playback has actually begun
+            el.addEventListener(
+              'playing',
+              () => {
+                if (Math.abs(el.currentTime - target) > 2) el.currentTime = target
+              },
+              { once: true },
+            )
+            await new Promise((r) => window.setTimeout(r, 900))
             if (Math.abs(el.currentTime - target) > 2) {
-              setSeekNote(`⚠ 定位没生效：应到 ${fmtTime(target)}，实际 ${fmtTime(el.currentTime)}`)
+              el.currentTime = target
+              await new Promise((r) => window.setTimeout(r, 600))
+            }
+            if (Math.abs(el.currentTime - target) > 2) {
+              // last resort: rebuild the media pipeline (some environments drop
+              // a seek issued against a element that never fully initialised)
+              try {
+                el.pause()
+                el.load()
+                await new Promise((resolve) => {
+                  const done = () => {
+                    el.removeEventListener('loadedmetadata', done)
+                    resolve()
+                  }
+                  el.addEventListener('loadedmetadata', done)
+                  window.setTimeout(done, 5000)
+                })
+                el.currentTime = target
+                await new Promise((resolve) => {
+                  const done = () => {
+                    el.removeEventListener('seeked', done)
+                    resolve()
+                  }
+                  el.addEventListener('seeked', done)
+                  window.setTimeout(done, 3000)
+                })
+                await el.play()
+              } catch {
+                // fall through to the report below
+              }
+            }
+            if (Math.abs(el.currentTime - target) > 2) {
+              setSeekNote(
+                `⚠ 跳转失败：目标 ${fmtTime(target)}，实际 ${fmtTime(el.currentTime)} · ${describeElement()}`,
+              )
             }
           }
           void begin()
@@ -669,14 +751,6 @@ window.__ModuleLoader__.load({
             t('refresh'),
           ),
         ),
-        h('audio', {
-          ref: audioRef,
-          src: songId ? `${API}/media/${encodeURIComponent(songId)}/audio` : undefined,
-          preload: 'auto',
-          style: { display: 'none' },
-          onLoadedMetadata: (event) => setDuration(Number(event.currentTarget.duration) || 0),
-          onEnded: () => setPlaying(false),
-        }),
         song && (song.lines || []).length
           ? h(
               'div',
