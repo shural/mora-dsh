@@ -25,7 +25,8 @@ It can also be practised in, not just read:
 
 - ▶ play / pause the real audio (streamed through the proxy with Range support)
 - 0.5×–1.0× tempo with `preservesPitch` (slowing down does not change the key)
-- 「循环本句」 A–B loops the line you are on; clicking a line seeks to it
+- **click any lyric line to play exactly that line**, and it stops at the end of it
+  (arm 「循环本句」 first if you want that line to loop instead)
 - the active line is highlighted and auto-scrolled while playing
 - 🎤 「录这一句」 records with MediaRecorder, posts it to `/sing`, and shows the
   mora-level diff (green = matched, struck-through red = dropped, amber = extra),

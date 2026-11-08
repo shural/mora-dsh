@@ -39,6 +39,7 @@ window.__ModuleLoader__.load({
       legendPoetic: '诗意但成立',
       legendSongOnly: '只存在于歌词',
       clickWord: '点词看读音',
+      clickLine: '点一句就播这一句',
       kana: '读音',
       romaji: '罗马音',
       pos: '词性',
@@ -69,6 +70,7 @@ window.__ModuleLoader__.load({
       legendPoetic: 'poetic but valid',
       legendSongOnly: 'lyrics only',
       clickWord: 'Click a word for its reading',
+      clickLine: 'Click a line to play it',
       kana: 'reading',
       romaji: 'romaji',
       pos: 'part of speech',
@@ -247,6 +249,8 @@ window.__ModuleLoader__.load({
 .mora-line{border-radius:8px;cursor:pointer}
 .mora-line.is-active{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent)}
 .mora-line.is-active .mora-text{color:var(--dsw-alias-brand-primary)}
+.mora-line:hover .mora-idx{color:var(--dsw-alias-brand-primary)}
+.mora-line:hover .mora-idx::after{content:' ▶'}
 .mora-err{color:var(--dsw-alias-state-error-primary);font-size:11.5px}
 @media (max-width:820px){.mora-rail{display:none}.mora-main{padding:14px 16px 40px}}
 `
@@ -268,6 +272,7 @@ window.__ModuleLoader__.load({
       const lineRefs = useRef([])
       const offsetRef = useRef(0)
       const lastSecondRef = useRef(-1)
+      const segmentRef = useRef(null) // [start, end] absolute, cleared when the segment ends
       const [playing, setPlaying] = useState(false)
       const [rate, setRate] = useState(1)
       const [loopLine, setLoopLine] = useState(false)
@@ -360,6 +365,7 @@ window.__ModuleLoader__.load({
         setPlaying(false)
         setTime(0)
         lastSecondRef.current = -1
+        segmentRef.current = null
         const el = audioRef.current
         if (el) {
           el.pause()
@@ -390,7 +396,13 @@ window.__ModuleLoader__.load({
               if (start >= 0 && t >= start + off) idx = i
             }
             if (idx >= 0) setActiveIndex((prev) => (prev === idx ? prev : idx))
-            if (loopLine && idx >= 0) {
+            const segment = segmentRef.current
+            if (segment && t >= segment[1]) {
+              el.pause()
+              el.currentTime = Math.max(0, segment[1] - 0.05)
+              segmentRef.current = null
+              setPlaying(false)
+            } else if (loopLine && idx >= 0) {
               const end = Number(lineArr[idx].end) + off
               if (end > 0 && t >= end) el.currentTime = Math.max(0, Number(lineArr[idx].start) + off)
             }
@@ -405,6 +417,7 @@ window.__ModuleLoader__.load({
         const el = audioRef.current
         if (!el) return
         if (el.paused) {
+          segmentRef.current = null
           el.preservesPitch = true
           el.playbackRate = rate
           void el
@@ -426,14 +439,30 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      const seekTo = useCallback((index) => {
-        const line = linesRef.current[index]
-        const el = audioRef.current
-        if (!line || !el || Number(line.start) < 0) return
-        el.currentTime = Math.max(0, Number(line.start) + offsetRef.current)
-        setTime(el.currentTime)
-        setActiveIndex(index)
-      }, [])
+      /** Click a lyric line: play exactly that line, then stop. */
+      const playLine = useCallback(
+        (index) => {
+          const line = linesRef.current[index]
+          const el = audioRef.current
+          if (!line || !el || Number(line.start) < 0) return
+          const off = offsetRef.current
+          const start = Math.max(0, Number(line.start) + off)
+          const end = Number(line.end) > 0 ? Number(line.end) + off : start + 6
+          segmentRef.current = loopLine ? null : [start, end]
+          el.currentTime = start
+          setTime(start)
+          lastSecondRef.current = Math.floor(start)
+          setActiveIndex(index)
+          setSingError(null)
+          el.preservesPitch = true
+          el.playbackRate = rate
+          void el
+            .play()
+            .then(() => setPlaying(true))
+            .catch((error) => setSingError(`播放失败：${error?.message || error}`))
+        },
+        [loopLine, rate],
+      )
 
       const submitSing = useCallback(
         async (blob, lineId) => {
@@ -559,7 +588,7 @@ window.__ModuleLoader__.load({
               ? h('div', { className: 'mora-state' }, h('div', { className: 'mora-state-text' }, songError))
               : song === null
                 ? h('div', { className: 'mora-state' }, t('loadingSong'))
-                : renderSong(song, selected, setSelected, t, totals, activeIndex, lineRefs, seekTo),
+                : renderSong(song, selected, setSelected, t, totals, activeIndex, lineRefs, playLine),
           ),
         )
       })()
@@ -707,7 +736,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function renderSong(song, selected, setSelected, t, totals, activeIndex, lineRefs, seekTo) {
+    function renderSong(song, selected, setSelected, t, totals, activeIndex, lineRefs, playLine) {
       const timingKey =
         song.timingSource === 'lrc'
           ? 'timingLrc'
@@ -738,6 +767,7 @@ window.__ModuleLoader__.load({
           h('span', null, h('i', { className: 'mora-dot', style: { background: 'var(--dsw-alias-state-warn-primary)' } }), t('legendPoetic')),
           h('span', null, h('i', { className: 'mora-dot', style: { background: 'var(--dsw-alias-state-error-primary)' } }), t('legendSongOnly')),
           h('span', null, t('clickWord')),
+          h('span', null, t('clickLine')),
         ),
         !lines.length
           ? h(
@@ -747,12 +777,12 @@ window.__ModuleLoader__.load({
               h('div', { className: 'mora-state-text' }, t('noLyricsHint')),
             )
           : lines.map((line, index) =>
-              renderLine(line, index, selected, setSelected, index === activeIndex, lineRefs, seekTo),
+              renderLine(line, index, selected, setSelected, index === activeIndex, lineRefs, playLine),
             ),
       )
     }
 
-    function renderLine(line, index, selected, setSelected, isActive, lineRefs, seekTo) {
+    function renderLine(line, index, selected, setSelected, isActive, lineRefs, playLine) {
       const groups = groupTokens(line.tokens)
       return h(
         'div',
@@ -762,7 +792,8 @@ window.__ModuleLoader__.load({
           ref: (element) => {
             lineRefs.current[index] = element
           },
-          onClick: () => seekTo(index),
+          onClick: () => playLine(index),
+          title: '点这一句，播放这一句',
         },
         h('span', { className: 'mora-idx' }, String(index + 1).padStart(2, '0')),
         h(
