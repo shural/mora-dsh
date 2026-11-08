@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: validate package, locales, patch, js syntax
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, yaml
+          root = pathlib.Path('.')
+          pkg = json.load(open(root / 'package.json'))
+          assert pkg['dsh']['bundle']['patch'] == './cordis.patch.yml'
+          assert './client' in pkg['exports']
+          for name in ('locale/en.json', 'locale/zh.json'):
+              data = json.load(open(root / name))
+              assert data['meta']['title'] and data['meta']['description'], name
+          patch = yaml.safe_load(open(root / 'cordis.patch.yml'))
+          assert patch[0]['insert'][0]['name'] == pkg['name']
+          print('manifest ok')
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: |
+          cp index.js /tmp/host.mjs && node --check /tmp/host.mjs
+          cp client.js /tmp/client.mjs && node --check /tmp/client.mjs
+          echo "syntax ok"

@@ -15,8 +15,26 @@ plugin_manager install_bundle target=<absolute path to this directory>
 |---|---|
 | `sidebar.panellist` (id `mora`, order 20) | the icon in the sidebar panel row |
 | `main` (key `mora`) | the study panel: song rail, lyrics, per-word strip, and a practice bar |
-| tools | `mora_songs`, `mora_add_song`, `mora_song`, `mora_cards`, `mora_review` |
+| tools | five, listed below |
 | routes | `/mora/api/*` (proxy to the sidecar), `/mora/info` (its origin) |
+
+The panel opens on whatever is in your library: pick a song on the left, and every line
+shows its furigana, a word strip grouped into phrases with per-word meanings and particle
+roles, the line translation, and a naturalness dot. Click a line to play just that line;
+`0.5×–1.0×` tempo, A–B loop, and 🎤 records a line and diffs what you actually sang.
+
+### Tools the assistant can call
+
+| Tool | What it does |
+|---|---|
+| `mora_songs` | list the library with line and card counts |
+| `mora_add_song` | add by name or URL: lyrics → audio → alignment → annotation (~40–60s) |
+| `mora_song` | a range of lines with per-word glosses, roles, translation, naturalness — this is what lets the assistant explain grammar from your real annotations |
+| `mora_cards` | saved vocabulary cards and their due dates |
+| `mora_review` | grade a card, advancing the interval |
+
+A typical exchange: *"为什么 SAY YES 第二句这么写？"* → the assistant calls `mora_song`, reads the
+per-word breakdown and the grammar note, and answers from your own data rather than guessing.
 
 The panel is a **native React component** styled with `--dsw-alias-*` tokens — not an iframe,
 so it follows the host theme and light/dark.
@@ -78,6 +96,25 @@ icon.svg           panel + plugin artwork
   page refresh unless `pnpm run dev:web` is running.
 - Visible text uses a local `ZH`/`EN` dictionary rather than `ctx.locale`, so the panel can't
   blank itself if the locale API differs; the plugin-list metadata still ships in `locale/*.json`.
+
+## Install
+
+1. Install the [Mora](https://github.com/shural/mora) app first — this bundle only wraps it.
+2. Edit `cordis.patch.yml` so `config.appRoot` points at your Mora checkout.
+3. Install the bundle:
+
+```
+plugin_manager install_bundle target=<absolute path to this directory>
+```
+
+The Host half attaches to a sidecar already listening on `config.port`, or spawns
+`.venv/bin/python -m uvicorn server.main:app` in `appRoot`. Nothing is served over the network.
+
+## Screenshot
+
+Not included: the panel is styled with the host's `--dsw-alias-*` tokens, so a faithful
+screenshot has to come from a running Harness with the panel open. Drop one in
+`docs/panel.png` and reference it here.
 
 ## License
 
