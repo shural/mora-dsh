@@ -10,7 +10,10 @@
  * serves HTML.
  */
 import http from 'node:http'
+import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const DEFAULTS = {
   appRoot: '',
@@ -20,11 +23,43 @@ const DEFAULTS = {
   proxyPath: '/mora/api',
 }
 
+/** A placeholder or an empty value means "work it out". */
+function usableRoot(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (text.includes('/absolute/path/to/')) return ''
+  if (!existsSync(path.join(text, 'server', 'main.py'))) return ''
+  return path.resolve(text)
+}
+
+/**
+ * Find the Mora checkout without needing a machine-specific path in a public
+ * repo: explicit config, then MORA_ROOT, then the sibling `../mora` checkout
+ * next to this package (the layout both repos are published in).
+ */
+function resolveAppRoot(configured) {
+  const candidates = [configured, process.env.MORA_ROOT]
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url))
+    candidates.push(path.resolve(here, '..', 'mora'))
+  } catch {
+    // import.meta.url unavailable — rely on config / env
+  }
+  for (const candidate of candidates) {
+    const root = usableRoot(candidate)
+    if (root) return root
+  }
+  return ''
+}
+
 /** Resolved settings for this row. */
 function settings(config = {}) {
   const merged = { ...DEFAULTS, ...(config || {}) }
   merged.port = Number(merged.port) || DEFAULTS.port
-  if (!merged.python && merged.appRoot) merged.python = `${merged.appRoot}/.venv/bin/python`
+  merged.appRoot = resolveAppRoot(merged.appRoot)
+  if (!merged.python || !existsSync(merged.python)) {
+    merged.python = merged.appRoot ? path.join(merged.appRoot, '.venv', 'bin', 'python') : ''
+  }
   return merged
 }
 
@@ -45,12 +80,30 @@ function startSidecar(cfg, log) {
     log('mora: appRoot/python not configured; not starting the sidecar')
     return null
   }
+  // A wrong appRoot must never take the Harness down with it: spawn raises
+  // ENOENT asynchronously through the 'error' event, and an unhandled one is an
+  // uncaught exception that kills the host process (and the desktop app with it).
+  if (!existsSync(cfg.python)) {
+    log(`mora: python not found at ${cfg.python} — set config.appRoot in your profile patch`)
+    return null
+  }
+  if (!existsSync(cfg.appRoot)) {
+    log(`mora: appRoot not found at ${cfg.appRoot} — set config.appRoot in your profile patch`)
+    return null
+  }
   log(`mora: starting sidecar on :${cfg.port}`)
-  const child = spawn(
-    cfg.python,
-    ['-m', 'uvicorn', 'server.main:app', '--host', '127.0.0.1', '--port', String(cfg.port)],
-    { cwd: cfg.appRoot, stdio: ['ignore', 'pipe', 'pipe'], env: process.env },
-  )
+  let child
+  try {
+    child = spawn(
+      cfg.python,
+      ['-m', 'uvicorn', 'server.main:app', '--host', '127.0.0.1', '--port', String(cfg.port)],
+      { cwd: cfg.appRoot, stdio: ['ignore', 'pipe', 'pipe'], env: process.env },
+    )
+  } catch (error) {
+    log(`mora: could not start the sidecar: ${error?.message || error}`)
+    return null
+  }
+  child.on('error', (error) => log(`mora: sidecar failed to start: ${error?.message || error}`))
   child.stdout?.on('data', () => {})
   child.stderr?.on('data', (buf) => {
     const text = String(buf)
@@ -351,5 +404,5 @@ export function apply(ctx, config) {
     ctx.effect(() => ctx.tools.register(tool))
   }
 
-  log(`mora: ready (sidecar :${cfg.port}, proxy ${cfg.proxyPath})`)
+  log(`mora: ready (appRoot=${cfg.appRoot || 'unresolved'}, sidecar :${cfg.port}, proxy ${cfg.proxyPath})`)
 }
