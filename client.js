@@ -272,6 +272,8 @@ window.__ModuleLoader__.load({
       const recRef = useRef(null)
       const linesRef = useRef([])
       const lineRefs = useRef([])
+      const mainRef = useRef(null)
+      const followPausedUntilRef = useRef(0)
       const offsetRef = useRef(0)
       const audioReadyRef = useRef(Promise.resolve(true)) // resolves when the blob is installed
       const lastSecondRef = useRef(-1)
@@ -366,6 +368,15 @@ window.__ModuleLoader__.load({
           if (audioRef.current === el) audioRef.current = null
         }
       }, [])
+
+      // The rAF transport reads the line list and the song offset outside React
+      // state, so a re-render is not needed to advance the highlight. This
+      // assignment is load-bearing: without it activeIndex never moves, the
+      // A-B loop does nothing, and follow-scroll has nothing to follow.
+      useEffect(() => {
+        linesRef.current = song?.lines || []
+        offsetRef.current = Number(song?.offset) || 0
+      }, [song])
 
       // Load the song into a Blob and play it from a blob: URL.
       //
@@ -462,11 +473,28 @@ window.__ModuleLoader__.load({
         return () => cancelAnimationFrame(raf)
       }, [playing, loopLine])
 
+      // Follow the sung line: keep it comfortably inside the panel while the song
+      // plays, but never yank the view back if the user scrolled ahead to read.
+      useEffect(() => {
+        if (!playing) return
+        if (Date.now() < followPausedUntilRef.current) return
+        const container = mainRef.current
+        const line = lineRefs.current[activeIndex]
+        if (!container || !line || typeof container.scrollTo !== 'function') return
+        const view = container.getBoundingClientRect()
+        const box = line.getBoundingClientRect()
+        const margin = 72
+        if (box.top >= view.top + margin && box.bottom <= view.bottom - margin) return
+        const delta = box.top - view.top - (view.height - box.height) / 2
+        container.scrollTo({ top: Math.max(0, container.scrollTop + delta), behavior: 'smooth' })
+      }, [activeIndex, playing])
+
       const togglePlay = useCallback(() => {
         const el = audioRef.current
         if (!el) return
         if (el.paused) {
           segmentRef.current = null
+          followPausedUntilRef.current = 0
           el.preservesPitch = true
           el.playbackRate = rate
           void el
@@ -731,7 +759,16 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { className: 'mora-main' },
+            {
+              className: 'mora-main',
+              ref: mainRef,
+              onWheel: () => {
+                followPausedUntilRef.current = Date.now() + 5000
+              },
+              onTouchMove: () => {
+                followPausedUntilRef.current = Date.now() + 5000
+              },
+            },
             songError
               ? h('div', { className: 'mora-state' }, h('div', { className: 'mora-state-text' }, songError))
               : song === null
