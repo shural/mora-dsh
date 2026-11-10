@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: validate package, locales, patch, js syntax
+      - name: validate package, locales, patch
         run: |
           python3 - <<'PY'
           import json, pathlib, yaml
@@ -27,8 +27,36 @@ jobs:
           PY
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - run: |
           cp index.js /tmp/host.mjs && node --check /tmp/host.mjs
           cp client.js /tmp/client.mjs && node --check /tmp/client.mjs
           echo "syntax ok"
+
+  host:
+    # No browser, no dependencies: the plugins' apply() must never throw,
+    # must register its routes and tools, and must not spawn anything when
+    # appRoot cannot be resolved.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node test/host.test.mjs
+
+  panel:
+    # Renders the real client.js against intercepted API responses and drives
+    # the transport. Guards the class of regression where a refactor silently
+    # deletes a load-bearing effect (linesRef) and the highlight stops moving.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: test-only dependencies
+        run: npm install --no-save --no-audit --no-fund playwright@1 react@18 react-dom@18
+      - name: browser
+        run: npx playwright install --with-deps chromium
+      - run: node test/panel.test.mjs
