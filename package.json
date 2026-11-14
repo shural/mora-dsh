@@ -3,20 +3,52 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Mora — read Japanese song lyrics word by word, inside the Harness.",
+  "description": "Mora — read Japanese song lyrics word by word inside DeepSeek Harness: furigana panel, per-word Chinese glosses with particle roles, playback with follow-along highlight, and mora_tools the assistant can call.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "japanese",
+    "language-learning",
+    "karaoke",
+    "lyrics",
+    "study"
+  ],
+  "license": "MIT",
+  "author": "shural",
+  "homepage": "https://github.com/shural/mora-dsh#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shural/mora-dsh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shural/mora-dsh/issues"
+  },
+  "engines": {
+    "dsh": ">=0.2.2-rc.1"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
-  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
   }
 }
