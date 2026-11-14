@@ -1,6 +1,6 @@
 - insert:
     - id: mora
-      name: '@local/dsh-mora'
+      name: 'dsh-mora'
       config:
         appRoot: /absolute/path/to/mora
         port: 8787

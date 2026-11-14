@@ -1,7 +1,6 @@
 {
-  "name": "@local/dsh-mora",
-  "version": "1.0.0",
-  "private": true,
+  "name": "dsh-mora",
+  "version": "0.1.0",
   "type": "module",
   "description": "Mora — read Japanese song lyrics word by word inside DeepSeek Harness: furigana panel, per-word Chinese glosses with particle roles, playback with follow-along highlight, and mora_tools the assistant can call.",
   "keywords": [
