@@ -1,0 +1,67 @@
+name: pages
+
+# Publishes the DSH plugin index at https://<owner>.github.io/<repo>/index.json
+# Add that URL in DSH: Plugins -> Discover -> Add index source.
+#
+# The index is generated from the published npm package rather than committed,
+# so the version, publishTimestamp and engines.dsh cannot drift from what users
+# actually install. The daily run picks up a new npm release automatically.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: generate the plugin index from npm
+        run: node scripts/build-index.mjs
+      - name: validate the generated index
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          index = json.load(open('public/index.json'))
+          assert index['format'] == 1
+          assert index['title']['en']
+          plugins = index['plugins']
+          assert plugins, 'index lists no plugins'
+          for plugin in plugins:
+              assert plugin['name'] and plugin['versions'], plugin.get('name')
+              for version in plugin['versions']:
+                  assert version['source']['type'] == 'npm'
+                  assert isinstance(version['publishTimestamp'], int)
+                  assert version['engines']['dsh'].strip()
+          print(f"index ok: {len(plugins)} plugin(s), "
+                f"{plugins[0]['name']}@{plugins[0]['dist-tags']['latest']}")
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
