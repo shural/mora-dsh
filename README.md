@@ -1,4 +1,4 @@
-# @local/dsh-mora
+# dsh-mora
 
 DSH bundle that puts **Mora** (the local Japanese-song learning app) inside the Harness:
 a sidebar panel plus five tools the assistant can call.
@@ -69,7 +69,7 @@ Config lives in `cordis.patch.yml`:
 ```yaml
 - insert:
     - id: mora
-      name: '@local/dsh-mora'
+      name: 'dsh-mora'
       config:
         appRoot: /absolute/path/to/mora
         port: 8787

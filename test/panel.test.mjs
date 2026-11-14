@@ -94,6 +94,12 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8">
 <script>
 window.__ModuleLoader__ = {
   load({ id, factory }) {
+    // A bundle that re-registers the same id throws inside the real loader and
+    // aborts the whole web boot, so record the id and let the test compare it.
+    if (window.__PLUGIN_IDS__ && window.__PLUGIN_IDS__.includes(id)) {
+      throw new Error('duplicate factory registration for "' + id + '"')
+    }
+    window.__PLUGIN_IDS__ = (window.__PLUGIN_IDS__ || []).concat(id)
     window.__PLUGIN__ = { id, mod: factory((name) => {
       if (name === 'react') return window.React
       throw new Error('unexpected require: ' + name)
@@ -151,6 +157,14 @@ try {
   })
 
   await page.goto('http://mora.test/', { waitUntil: 'domcontentloaded' })
+
+  // The client bundle must register under the package's own name. A rename that
+  // leaves the old id here makes the real loader throw a duplicate-factory
+  // error and the whole web boot fails ("dsh-mora: import failed").
+  const pkgName = JSON.parse(read('package.json')).name
+  const ids = await page.evaluate(() => window.__PLUGIN_IDS__ || [])
+  assert.deepEqual(ids, [pkgName], `client bundle registered as ${JSON.stringify(ids)}, package is "${pkgName}"`)
+  console.log(`ok  client registers under the package name (${pkgName})`)
   await page.waitForSelector('.mora-line', { timeout: 20000 })
 
   const lineCount = await page.locator('.mora-line').count()

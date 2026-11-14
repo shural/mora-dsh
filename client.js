@@ -10,7 +10,7 @@
  * reached through an explicit link.
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-mora',
+  id: 'dsh-mora',
   factory(require) {
     const React = require('react')
     const h = React.createElement
